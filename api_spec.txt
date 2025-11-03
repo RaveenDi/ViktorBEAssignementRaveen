@@ -1,0 +1,168 @@
+Book API – NLP Processing Platform
+This API allows clients to manage digital books and trigger asynchronous natural language processing tasks such as
+extracting linguistic insights.
+
+1. Create book
+
+HTTP Method: POST
+Request Body:
+    {
+      "name": "1984",
+      "author": "George Orwell",
+      "publisher": "Secker & Warburg",
+      "publicationDate": "1949-06-08",
+      "ISBN": "9780451524935",
+      "coverPhoto": "https://s3.example.com/covers/1984.jpg"
+    }
+Response Status Codes:
+    201 Created: Book successfully created
+    400 Bad Request: Invalid input or missing fields
+    409 Conflict: Book with the same ISBN already exists
+
+Response Body:
+    {
+      "id": "book-uuid",
+      "name": "1984",
+      "author": "George Orwell",
+      "isbn": "9780451524935",
+      "coverPhoto": "https://s3.example.com/covers/1984.jpg"
+    }
+
+This endpoint creates a new digital book record with metadata provided by the client.
+The following key architectural considerations ensure the solution remains scalable cost-efficient and easy to evolve.
+
+Input Validation and Data Integrity
+- Validate all input fields to ensure they meet expected formats (e.g., ISBN format, publication date).
+- ISBN Uniqueness: ISBN is a global identifier. We enforce it via:
+    Format validation (ISBN-10 or ISBN-13)
+    A unique constraint in the database
+- UUIDs: All internal resource IDs (book_id) are generated as UUIDv4 to ensure global uniqueness across distributed systems.
+
+
+Cover Image Handling – Presigned URLs
+- To avoid storing large binary files in the backend and to keep compute costs low:
+    Clients request a presigned URL from the server for uploading cover images directly to cloud storage (e.g., AWS S3).
+    This offloads the file handling to the storage service, reducing server load and bandwidth costs.
+- Optional The frontend uses this signed URL to upload the image directly to S3.
+- The final public image URL is then passed to the POST /books/ call.
+
+
+Scalability Strategy
+- The books table (or collection) is expected to grow into the hundreds of thousands over time.
+- Indexing:
+    Create indexes on isbn, author, and publicationDate to support fast querying and filtering.
+
+
+Growth Architecture for Content Upload
+- Backend only stores references (e.g., file URL or S3 key).
+- This allows S3 lifecycle policies to be applied; move old uploads to infrequent-access storage to reduce long-term costs.
+
+
+Additional: Metadata & Analysis – Async Processing Architecture (AWS)
+Triggering the Process - When the client hits POST /books/{id}/process, we publish a message to Amazon SQS
+(a fully managed, scalable message queue).
+    The message includes: book_id, S3 file location (book content), Any optional processing instructions
+Processing with AWS Lambda
+    A background Lambda function listens to the SQS queue.
+    It pulls the message, downloads the book file from S3, and runs processing logic
+    On completion, it updates the book’s metadata in our database (e.g. RDS or DynamoDB)
+    It’s event driven, auto scales and we only pay per use.. ideal for unpredictable or burst traffic
+Failure Handling & Retries
+    - We use AWS SQS and Lambda for handling book processing in the background. This setup auto-scales with traffic and
+    keeps costs low since we only pay when processing actually runs.
+    - If something fails during processing , the Lambda function retries a few times automatically. If it keeps failing,
+    we send that job to a “dead letter queue” so we can inspect it later without blocking other work.
+    - Since SQS handles millions of messages and Lambda runs in parallel, we can support large spikes in uploads without
+    slowing down. It's fully managed, so no need to worry about scaling or idle servers and it keeps the backend light.
+
+We include processing status directly in the GET /books/{id}/ response under a processing field. This allows
+the frontend to check status while viewing book details, without extra polling endpoints. The backend reflects this
+via status and progress fields in the books table, updated in real time by the async worker.
+
+
+2. Get book details
+This endpoint retrieves detailed information about a specific book, including its metadata and processing status.
+
+HTTP Method: GET
+Path Parameter:
+    id: UUID of the book
+Response Status Codes:
+    200 OK: Book found
+    404 Not Found: Book with the given ID does not exist
+Response Body:
+    {
+      "id": "book-uuid",
+      "name": "1984",
+      "author": "George Orwell",
+      "publisher": "Secker & Warburg",
+      "publicationDate": "1949-06-08",
+      "ISBN": "9780451524935",
+      "coverPhoto": "https://s3.example.com/covers/1984.jpg",
+      "status": "completed", // possible values: pending, in_progress, completed, failed
+      }
+    }
+
+
+3. Update cover photo
+This endpoint allows clients to update the cover photo of an existing book.
+
+HTTP Method: PUT
+Path Parameter:
+    id: UUID of the book
+Request Body:
+    {
+      "coverPhoto": "https://s3.example.com/covers/1984-new.jpg"
+    }
+Response Status Codes:
+    200 OK: Cover photo successfully updated
+    400 Bad Request: Invalid input
+    404 Not Found: Book with the given ID does not exist
+Response Body:
+    {
+      "id": "book-uuid",
+      "coverPhoto": "https://s3.example.com/covers/1984-new.jpg"
+    }
+
+4. Get Book list
+List books in the system. Supports flexible filtering, sorting, and pagination using a consistent link-based navigation format.
+HTTP Method: GET
+Response Status Codes:
+    200 OK: Books retrieved successfully
+Query Parameters (optional):
+    page (integer): page number (default: 1)
+    pageSize (integer): number of items per page (default: 20)
+    author (string): filter by author name
+    publisher (string): filter by publisher name
+    sort (string): comma-separated field(s) to sort by. Prefix with - for descending.
+    Example - GET /books?page=2&pageSize=10&author=Orwell&sort=-publicationDate
+Response Body:
+    {
+      "count": 423,
+      "next": "/books?page=3&pageSize=10",
+      "previous": "/books?page=1&pageSize=10",
+      "results": [
+        {
+          "id": "book-uuid-1",
+          "name": "1984",
+          "author": "George Orwell",
+          "isbn": "9780451524935",
+          "status": "COMPLETED",
+        },
+        {
+          "id": "book-uuid-2",
+          "name": "Animal Farm",
+          "author": "George Orwell",
+          "isbn": "9780451526342",
+          "status": "NOT_STARTED"
+        }
+      ]
+    }
+
+- count indicates total number of books matching the filters.
+- next and previous are absolute or relative URLs to simplify client-side pagination.
+- results contains only books for the current page.
+- If no next or previous page exists, the corresponding field is null.
+
+Pagination uses a REST-standard, stateless, v3-style format with next/previous links. This keeps the API consistent and
+allows us to later move to cursor-based pagination (e.g. after=book-id) without changing the public interface.
+

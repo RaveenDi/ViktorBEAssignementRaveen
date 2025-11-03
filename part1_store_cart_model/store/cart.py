@@ -1,7 +1,7 @@
 from typing import List
 from uuid import UUID
 
-from store.models import Product
+from part1_store_cart_model.store.models import Product
 
 
 class ShoppingCart:

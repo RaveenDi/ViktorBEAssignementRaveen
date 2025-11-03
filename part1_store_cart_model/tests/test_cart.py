@@ -1,8 +1,8 @@
 import unittest
 from uuid import UUID
 
-from store.cart import ShoppingCart
-from store.models import Book, MusicAlbum, SoftwareLicense
+from part1_store_cart_model.store import ShoppingCart
+from part1_store_cart_model.store import Book, MusicAlbum, SoftwareLicense
 
 
 class ShoppingCartTest(unittest.TestCase):

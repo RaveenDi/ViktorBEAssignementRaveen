@@ -1,8 +1,9 @@
 import unittest
 from uuid import UUID
 
-from part1_store_cart_model.store import ShoppingCart
-from part1_store_cart_model.store import Book, MusicAlbum, SoftwareLicense
+from part1_store_cart_model.store.analytics.recommender import recommend_next_product
+from part1_store_cart_model.store.cart import ShoppingCart
+from part1_store_cart_model.store.models import Book, MusicAlbum, SoftwareLicense
 
 
 class ShoppingCartTest(unittest.TestCase):
@@ -41,6 +42,31 @@ class ShoppingCartTest(unittest.TestCase):
     def test_unique_ids(self):
         book2 = Book(title="Animal Farm", author="Orwell", num_pages=120, weight_kg=0.3, price_eur=10.0)
         self.assertNotEqual(self.book.id, book2.id)
+
+    def test_recommendation_engine_basic(self):
+        # Create multiple carts to simulate user behavior
+        cart1 = ShoppingCart()
+        cart1.add_product(self.book)
+        cart1.add_product(self.album)
+
+        cart2 = ShoppingCart()
+        cart2.add_product(self.book)
+        cart2.add_product(self.album)
+
+        cart3 = ShoppingCart()
+        cart3.add_product(self.book)
+        cart3.add_product(self.license)
+
+        cart4 = ShoppingCart()
+        cart4.add_product(self.album)
+        cart4.add_product(self.license)
+
+        carts = [cart1, cart2, cart3, cart4]
+
+        recommendations = recommend_next_product(carts)
+
+        self.assertEqual(recommendations[str(self.album.id)], (str(self.book.id), 2))
+        self.assertEqual(recommendations[str(self.license.id)], (str(self.book.id), 1))
 
 if __name__ == '__main__':
     unittest.main()

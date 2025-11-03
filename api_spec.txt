@@ -57,10 +57,32 @@ Growth Architecture for Content Upload
 - Backend only stores references (e.g., file URL or S3 key).
 - This allows S3 lifecycle policies to be applied; move old uploads to infrequent-access storage to reduce long-term costs.
 
+2. Upload Book Content
+This endpoint allows clients to upload the full book content (e.g., .pdf, .txt) after creating the metadata.
+The uploaded content is used for downstream NLP analysis.
+
+We follow the same S3-based upload model as the cover image:
+    - The frontend first requests a presigned URL from the backend
+    - Then it directly uploads the file to S3
+    - Finally, the file’s public URL (or key) is referenced in the database for processing
+HTTP Method: POST
+Path Parameter:
+    id: UUID of the book
+Request Body:
+    {
+      "fileUrl": "https://s3.example.com/books/1984.pdf"
+    }
+Alternative Usage (if not using presigned URLs):
+    Accept direct uploads via multipart/form-data (less scalable)
+Response Status Codes:
+    202 Accepted: Book content upload accepted and processing started
+    400 Bad Request: Invalid input or missing fields
+    404 Not Found: Book with the given ID does not exist
+
 
 Additional: Metadata & Analysis – Async Processing Architecture (AWS)
-Triggering the Process - When the client hits POST /books/{id}/process, we publish a message to Amazon SQS
-(a fully managed, scalable message queue).
+Triggering the Process - when the book content is uploaded, we kick off an async processing workflow:
+    We send a message to an AWS SQS queue (a fully managed, scalable message queue).
     The message includes: book_id, S3 file location (book content), Any optional processing instructions
 Processing with AWS Lambda
     A background Lambda function listens to the SQS queue.
@@ -80,7 +102,7 @@ the frontend to check status while viewing book details, without extra polling e
 via status and progress fields in the books table, updated in real time by the async worker.
 
 
-2. Get book details
+3. Get book details
 This endpoint retrieves detailed information about a specific book, including its metadata and processing status.
 
 HTTP Method: GET
@@ -103,7 +125,7 @@ Response Body:
     }
 
 
-3. Update cover photo
+4. Update cover photo
 This endpoint allows clients to update the cover photo of an existing book.
 
 HTTP Method: PUT
@@ -123,7 +145,7 @@ Response Body:
       "coverPhoto": "https://s3.example.com/covers/1984-new.jpg"
     }
 
-4. Get Book list
+5. Get Book list
 List books in the system. Supports flexible filtering, sorting, and pagination using a consistent link-based navigation format.
 HTTP Method: GET
 Response Status Codes:
